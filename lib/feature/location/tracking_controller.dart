@@ -41,12 +41,19 @@ class TrackingState {
 /// Starts/stops location capture and persists every fix to SQLite *before*
 /// anything else happens, so a crash or a missing network never loses data.
 class TrackingController extends Notifier<TrackingState> {
+  /// After this long without a fix the screen explains what might be wrong.
+  static const slowFixAfter = Duration(seconds: 20);
+
   StreamSubscription<LocationFix>? _subscription;
+  Timer? _slowFixTimer;
   final _random = Random.secure();
 
   @override
   TrackingState build() {
-    ref.onDispose(() => _subscription?.cancel());
+    ref.onDispose(() {
+      _slowFixTimer?.cancel();
+      _subscription?.cancel();
+    });
     return const TrackingState();
   }
 
@@ -67,9 +74,18 @@ class TrackingController extends Notifier<TrackingState> {
     final source = ref.read(locationSourceFactoryProvider)(
       simulated: state.simulated,
     );
+    _slowFixTimer = Timer(slowFixAfter, () {
+      if (state.status != TrackingStatus.starting) return;
+      state = state.copyWith(
+        message: () =>
+            'No GPS signal yet. Try near a window, or on an '
+            'emulator set a location under Extended controls > Location.',
+      );
+    });
     _subscription = source.positions().listen(
       _onFix,
       onError: (Object error) {
+        _slowFixTimer?.cancel();
         _subscription?.cancel();
         _subscription = null;
         state = state.copyWith(
@@ -86,12 +102,14 @@ class TrackingController extends Notifier<TrackingState> {
   }
 
   Future<void> stop() async {
+    _slowFixTimer?.cancel();
     await _subscription?.cancel();
     _subscription = null;
     state = state.copyWith(status: TrackingStatus.stopped, message: () => null);
   }
 
   Future<void> _onFix(LocationFix fix) async {
+    _slowFixTimer?.cancel();
     final previous = state.lastFix;
     final isRepeat =
         previous != null &&

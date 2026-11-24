@@ -41,45 +41,59 @@ class LocationPermissionException implements Exception {
 }
 
 /// Real GPS through the geolocator plugin.
+///
+/// Permission is requested up front by `LocationGate`. This only re-checks, so
+/// a permission revoked mid-session shows up as a readable error.
 class GeolocatorLocationSource implements LocationSource {
-  GeolocatorLocationSource({this.distanceFilterMeters = 10});
+  GeolocatorLocationSource({this.interval = const Duration(seconds: 10)});
 
-  /// Minimum movement before a new fix is delivered. Saves battery and avoids
-  /// storing hundreds of identical points while standing still.
-  final int distanceFilterMeters;
+  /// Roughly how often a point is recorded. Updates are time-based rather than
+  /// distance-based so a phone that isn't moving still records its position.
+  final Duration interval;
 
   @override
   Stream<LocationFix> positions() async* {
-    await _ensurePermission();
-    yield* Geolocator.getPositionStream(locationSettings: _settings()).map(
-      (p) => LocationFix(
-        latitude: p.latitude,
-        longitude: p.longitude,
-        accuracy: p.accuracy,
-        timestamp: p.timestamp,
-      ),
-    );
+    await _checkAccess();
+
+    DateTime? last;
+    yield* Geolocator.getPositionStream(locationSettings: _settings())
+        .where((p) {
+          // iOS ignores the interval and can report every second.
+          if (last != null && p.timestamp.difference(last!) < interval ~/ 2) {
+            return false;
+          }
+          last = p.timestamp;
+          return true;
+        })
+        .map(
+          (p) => LocationFix(
+            latitude: p.latitude,
+            longitude: p.longitude,
+            accuracy: p.accuracy,
+            timestamp: p.timestamp,
+          ),
+        );
   }
 
-  Future<void> _ensurePermission() async {
+  Future<void> _checkAccess() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw const LocationPermissionException(
-        'Location services are turned off. Enable GPS and try again.',
+        'Location is turned off on this phone.',
         serviceDisabled: true,
       );
     }
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.deniedForever) {
-      throw const LocationPermissionException(
-        'Location permission is permanently denied. Enable it in system settings.',
-        permanentlyDenied: true,
-      );
-    }
-    if (permission == LocationPermission.denied) {
-      throw const LocationPermissionException('Location permission denied.');
+    switch (await Geolocator.checkPermission()) {
+      case LocationPermission.whileInUse:
+      case LocationPermission.always:
+        return;
+      case LocationPermission.deniedForever:
+        throw const LocationPermissionException(
+          'Location access is blocked. Allow it in Settings.',
+          permanentlyDenied: true,
+        );
+      case LocationPermission.denied:
+      case LocationPermission.unableToDetermine:
+        throw const LocationPermissionException('Location access is needed.');
     }
   }
 
@@ -88,16 +102,17 @@ class GeolocatorLocationSource implements LocationSource {
       case TargetPlatform.android:
         return AndroidSettings(
           accuracy: LocationAccuracy.high,
-          distanceFilter: distanceFilterMeters,
-          intervalDuration: const Duration(seconds: 5),
-          // A foreground service keeps the process (and GPS) alive when the app
-          // is in the background. Android requires a visible notification.
+          distanceFilter: 0,
+          intervalDuration: interval,
+          // Runs updates in a foreground service so they keep coming while
+          // the app is in the background. Android requires the notification.
           foregroundNotificationConfig: const ForegroundNotificationConfig(
-            notificationTitle: 'Geoloc is tracking your location',
+            notificationTitle: 'Recording your location',
             notificationText:
-                'Locations are saved on this device and synced '
-                'when you are online.',
+                'Points are saved on this phone and uploaded when you are '
+                'online.',
             enableWakeLock: true,
+            setOngoing: true,
           ),
         );
       case TargetPlatform.iOS:
@@ -105,16 +120,13 @@ class GeolocatorLocationSource implements LocationSource {
         return AppleSettings(
           accuracy: LocationAccuracy.high,
           activityType: ActivityType.otherNavigation,
-          distanceFilter: distanceFilterMeters,
+          distanceFilter: 0,
           pauseLocationUpdatesAutomatically: false,
           showBackgroundLocationIndicator: true,
           allowBackgroundLocationUpdates: true,
         );
       default:
-        return LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: distanceFilterMeters,
-        );
+        return const LocationSettings(accuracy: LocationAccuracy.high);
     }
   }
 }
