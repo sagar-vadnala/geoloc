@@ -5,7 +5,9 @@ import '../../core/config.dart';
 import 'data/location_api.dart';
 import 'data/location_record.dart';
 import 'data/location_store.dart';
+import 'location_access_controller.dart';
 import 'services/connectivity_service.dart';
+import 'services/location_permission_service.dart';
 import 'services/location_source.dart';
 import 'services/sync_coordinator.dart';
 import 'services/sync_service.dart';
@@ -84,6 +86,15 @@ final locationSourceFactoryProvider =
           ({required bool simulated}) => simulated
           ? SimulatedLocationSource()
           : GeolocatorLocationSource(),
+    );
+
+final locationPermissionServiceProvider = Provider<LocationPermissionService>(
+  (ref) => GeolocatorPermissionService(),
+);
+
+final locationAccessProvider =
+    NotifierProvider<LocationAccessController, LocationAccess>(
+      LocationAccessController.new,
     );
 
 final trackingControllerProvider =
