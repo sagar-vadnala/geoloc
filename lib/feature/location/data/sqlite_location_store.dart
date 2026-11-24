@@ -200,9 +200,9 @@ class SqliteLocationStore implements LocationStore {
     }
 
     yield await load();
-    await for (final _ in _changes.stream) {
-      yield await load();
-    }
+    // yield* (not `await for`) so cancelling the subscription also cancels
+    // the one on _changes; with `await for` cancel() never completed.
+    yield* _changes.stream.asyncMap((_) => load());
   }
 
   Future<void> close() async {
