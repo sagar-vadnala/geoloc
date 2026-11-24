@@ -37,8 +37,13 @@ On a physical device use your computer's LAN IP:
 flutter run --dart-define=API_BASE_URL=http://192.168.1.20:3000
 ```
 
-Toggle **Simulated location** on the screen to generate points without moving,
-then press **Start tracking**.
+On first launch the app asks for location access and stays on that screen until
+it is granted (see [Location permission](#location-permission)). Then pick
+**Phone GPS** or **Simulated** and press **Start recording**.
+
+On an emulator the GPS has no position until you give it one: Android emulator
+→ Extended controls (`...`) → Location → set a point; iOS simulator → Features →
+Location. **Simulated** works without any of that.
 
 ### 3. Try the offline behaviour
 
@@ -61,9 +66,11 @@ makes 30% of uploads fail randomly.
 
 ```
 lib/
-  core/config.dart                      API base URL
+  core/
+    config.dart                         API base URL
+    theme.dart                          colours, type, status colours
   feature/
-    home.dart                           entry screen
+    home.dart                           LocationGate + TrackingScreen
     location/
       data/
         location_record.dart            model, SyncStatus, counts
@@ -72,12 +79,16 @@ lib/
         location_api.dart               API interface + Dio implementation
       services/
         location_source.dart            GPS + simulated sources
+        location_permission_service.dart  wraps Geolocator permission calls
         connectivity_service.dart
         sync_service.dart               batch upload, dedupe, backoff
         sync_coordinator.dart           decides WHEN to sync
+      location_access_controller.dart   permission state for the gate
       tracking_controller.dart          start/stop, saves each fix
       providers.dart                    Riverpod wiring
-      presentation/tracking_screen.dart UI
+      presentation/
+        location_gate.dart              blocks the app until location is allowed
+        tracking_screen.dart            main screen
 server/                                 Express mock API (+ tests)
 test/feature/location/                  Flutter tests
 ```
@@ -106,6 +117,23 @@ SyncService -> Dio -> API -> SQLite (synced)`. The UI only reads SQLite
   2 s after new fixes are saved, when the earliest backoff expires, every
   minute as a safety net, and on **Sync now**.
 
+### Location permission
+
+The app can't do anything without location, so `LocationGate` sits in front of
+the tracker:
+
+1. On launch it checks the permission and, if the user hasn't answered yet,
+   shows the system dialog immediately.
+2. Until access is granted the user only sees a screen explaining why it's
+   needed, with one button that fixes the current problem: *Allow location
+   access* (dialog can still be shown), *Open Settings* (denied permanently) or
+   *Turn on location* (GPS switched off).
+3. It re-checks when the app comes back to the foreground and when the GPS
+   toggle changes, so granting access in Settings unlocks the app, and revoking
+   it mid-session stops recording and locks it again.
+
+The GPS source only re-checks access before starting; it never prompts.
+
 ### Mock API
 
 `POST /locations/batch`
@@ -128,11 +156,13 @@ flutter test                  # storage + sync (needs the native sqlite3 library
 cd server && npm test         # mock API
 ```
 
-`sync_service_test.dart` uses `mocktail` for the API and a real in-memory SQLite
-store. It covers success, duplicates, failure + backoff + recovery, rejected
-records, non-retryable errors, partial acknowledgement, offline, overlapping
-calls and batching. `sqlite_location_store_test.dart` covers persistence,
-duplicate inserts, ordering, backoff filtering and the change stream.
+| File | Covers |
+| --- | --- |
+| `sync_service_test.dart` | success, duplicates, failure + backoff + recovery, rejected records, non-retryable errors, partial acknowledgement, offline, overlapping calls, batching (mocked API, real in-memory SQLite) |
+| `sqlite_location_store_test.dart` | persistence, duplicate inserts, ordering, backoff filtering, change stream |
+| `location_api_test.dart` | request body, response parsing, which Dio errors and HTTP codes are retried |
+| `location_access_controller_test.dart` | first-launch prompt, denied / blocked / GPS off, refresh while the dialog is open |
+| `location_gate_test.dart` | the app stays locked until access is granted |
 
 ## Background location: how it works and its limits
 
@@ -145,10 +175,18 @@ No OS guarantees uninterrupted background tracking, so treat it as best effort.
 
 How it is set up
 - `geolocator` runs a **foreground service** with a persistent notification
-  (`ForegroundNotificationConfig` in `location_source.dart`) and a wake lock.
-- Manifest permissions: `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`,
-  `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `POST_NOTIFICATIONS`,
-  `INTERNET`, `ACCESS_NETWORK_STATE`.
+  (`ForegroundNotificationConfig` in `location_source.dart`) and a partial wake
+  lock. Updates are requested every 10 s with no distance filter.
+- Manifest permissions:
+
+  | Permission | Why |
+  | --- | --- |
+  | `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION` | GPS and network location; both are requested together as Android 12+ lets the user pick approximate |
+  | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION` | run the location foreground service (Android 14+ needs the typed one) |
+  | `WAKE_LOCK` | the service acquires a wake lock; without it starting tracking throws a `SecurityException` |
+  | `POST_NOTIFICATIONS` | lets the service notification show on Android 13+ |
+  | `INTERNET`, `ACCESS_NETWORK_STATE` | uploads and connectivity checks |
+
 - Tracking must be **started while the app is visible**. With a foreground
   service the "While using the app" permission is enough; `ACCESS_BACKGROUND_LOCATION`
   is not requested.
@@ -162,8 +200,9 @@ Limitations
 - If the user swipes the app away from recents, some devices kill the service.
   Points already saved are safe in SQLite; tracking resumes only when the user
   starts it again.
-- If the notification permission is denied (Android 13+), the notification is
-  hidden, but this is not a substitute for a working service on every OEM.
+- The app doesn't ask for the notification permission. On Android 13+ the
+  service still runs without it, but its notification only shows once the user
+  allows notifications for Geoloc in Settings.
 - Android resets permissions of unused apps, and "approximate location" gives
   coarse fixes.
 - `usesCleartextTraffic` is enabled only so the demo can talk to `http://` mock
@@ -195,7 +234,11 @@ Limitations
 
 ### Both platforms
 
-- The `distanceFilter` (10 m) means a stationary device records nothing.
+- Points are time-based (about one every 10 s), so a device that isn't moving
+  still records its position. On iOS, which can report every second, the GPS
+  source drops fixes that arrive less than 5 s apart.
+- The first fix can take from a few seconds to a minute, longer indoors. After
+  20 s without one the screen says so instead of looking stuck.
 - GPS accuracy drops indoors and in urban canyons.
 - `connectivity_plus` only says a network interface exists. A captive portal or
   a down server still looks "online", which is why every upload failure goes
