@@ -1,20 +1,31 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geoloc/core/theme.dart';
 import 'package:geoloc/feature/home.dart';
+import 'package:geoloc/feature/location/data/sqlite_location_store.dart';
+import 'package:geoloc/feature/location/providers.dart';
 import 'package:material_ui/material_ui.dart';
 
-void main() {
-  runApp(const MyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final store = await SqliteLocationStore.open();
+  runApp(
+    ProviderScope(
+      overrides: [locationStoreProvider.overrideWithValue(store)],
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Geoloc',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorScheme: .fromSeed(seedColor: Colors.deepPurple)),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
       home: const HomeScreen(),
     );
   }
