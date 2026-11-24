@@ -50,7 +50,14 @@ class SyncCoordinator {
   }
 
   Future<void> _run() async {
-    await _service.sync();
+    final outcome = await _service.sync();
+    if (outcome == SyncOutcome.offline) {
+      // Nothing was attempted, so no backoff moved forward. A retry timer here
+      // would fire every second until the network returns; the connectivity
+      // listener and the safety timer cover that case instead.
+      _retryTimer?.cancel();
+      return;
+    }
     await _scheduleRetry();
   }
 
