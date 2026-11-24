@@ -22,6 +22,7 @@ class LocationRecord {
     required this.longitude,
     required this.recordedAt,
     this.accuracy,
+    this.recordedOffline = false,
     this.status = SyncStatus.pending,
     this.attempts = 0,
     this.lastError,
@@ -38,6 +39,10 @@ class LocationRecord {
 
   /// When the fix was captured on the device (UTC).
   final DateTime recordedAt;
+
+  /// The phone had no network when this fix was saved, so it could only be
+  /// uploaded later. Shown as a badge in the list.
+  final bool recordedOffline;
 
   final SyncStatus status;
   final int attempts;
@@ -62,6 +67,7 @@ class LocationRecord {
     'longitude': longitude,
     'accuracy': accuracy,
     'recorded_at': recordedAt.toUtc().millisecondsSinceEpoch,
+    'recorded_offline': recordedOffline ? 1 : 0,
     'status': status.name,
     'attempts': attempts,
     'last_error': lastError,
@@ -79,6 +85,7 @@ class LocationRecord {
       longitude: (row['longitude'] as num).toDouble(),
       accuracy: (row['accuracy'] as num?)?.toDouble(),
       recordedAt: ms(row['recorded_at'])!,
+      recordedOffline: row['recorded_offline'] == 1,
       status: SyncStatus.fromName(row['status'] as String),
       attempts: row['attempts'] as int,
       lastError: row['last_error'] as String?,

@@ -117,6 +117,11 @@ SyncService -> Dio -> API -> SQLite (synced)`. The UI only reads SQLite
   2 s after new fixes are saved, when the earliest backoff expires, every
   minute as a safety net, and on **Upload now**. While the phone has no
   network it waits for connectivity to return instead of retrying on a timer.
+- **Offline badge.** Each point stores whether the phone had a network when it
+  was saved (`recorded_offline`, from the same connectivity check the uploader
+  uses). The list badges those points **Recorded offline** while they wait and
+  **Offline location sent** once the server has them. The column arrived in
+  database version 2; points in an older database are migrated as online.
 
 ### Location permission
 
@@ -161,7 +166,9 @@ cd server && npm test         # mock API
 | --- | --- |
 | `sync_coordinator_test.dart` | retries a due record while online, does not poll while offline, syncs as soon as the network returns (fake timers) |
 | `sync_service_test.dart` | success, duplicates, failure + backoff + recovery, rejected records, non-retryable errors, partial acknowledgement, offline, overlapping calls, batching (mocked API, real in-memory SQLite) |
-| `sqlite_location_store_test.dart` | persistence, duplicate inserts, ordering, backoff filtering, change stream |
+| `sqlite_location_store_test.dart` | persistence, duplicate inserts, ordering, backoff filtering, change stream, offline flag, upgrade from database version 1 |
+| `tracking_controller_test.dart` | points saved without network are flagged offline, with network they are not, a failing network check still saves the point |
+| `tracking_screen_test.dart` | the offline badge, and that it changes to "Offline location sent" once uploaded |
 | `location_api_test.dart` | request body, response parsing, which Dio errors and HTTP codes are retried |
 | `location_access_controller_test.dart` | first-launch prompt, denied / blocked / GPS off, refresh while the dialog is open |
 | `location_gate_test.dart` | the app stays locked until access is granted |

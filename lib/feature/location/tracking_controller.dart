@@ -124,6 +124,7 @@ class TrackingController extends Notifier<TrackingState> {
       longitude: fix.longitude,
       accuracy: fix.accuracy,
       recordedAt: fix.timestamp.toUtc(),
+      recordedOffline: !await _isOnline(),
     );
     try {
       await ref.read(locationStoreProvider).insert(record);
@@ -140,6 +141,16 @@ class TrackingController extends Notifier<TrackingState> {
       message: () => null,
     );
     ref.read(syncCoordinatorProvider).requestSync();
+  }
+
+  /// Same check the uploader uses. If it fails, the point is not labelled
+  /// offline; saving it matters more than the label.
+  Future<bool> _isOnline() async {
+    try {
+      return await ref.read(connectivityServiceProvider).isOnline();
+    } catch (_) {
+      return true;
+    }
   }
 
   /// Random 96-bit id plus a time prefix. Collisions are not a practical

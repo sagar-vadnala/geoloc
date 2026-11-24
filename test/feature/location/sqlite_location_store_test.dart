@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geoloc/feature/location/data/location_record.dart';
 import 'package:geoloc/feature/location/data/sqlite_location_store.dart';
@@ -114,5 +116,82 @@ void main() {
     expect(emissions.first.counts.total, 0);
     expect(emissions.last.counts.pending, 1);
     expect(emissions.last.recent.single.id, 'a');
+  });
+
+  test('remembers which points were recorded offline', () async {
+    await store.insert(record('online', minute: 1));
+    await store.insert(
+      LocationRecord(
+        id: 'offline',
+        latitude: 1,
+        longitude: 2,
+        recordedAt: DateTime.utc(2026, 1, 1, 10, 2),
+        recordedOffline: true,
+      ),
+    );
+    await store.markSynced({'offline'}, at: now);
+
+    final recent = (await store.watch().first).recent;
+    final byId = {for (final r in recent) r.id: r};
+    expect(byId['online']!.recordedOffline, isFalse);
+    expect(byId['offline']!.recordedOffline, isTrue);
+    expect(byId['offline']!.status, SyncStatus.synced);
+  });
+
+  test('upgrading a version 1 database keeps its points', () async {
+    final dir = await Directory.systemTemp.createTemp('geoloc_store_test');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = '${dir.path}/geoloc.db';
+
+    // The schema as shipped in version 1, before recorded_offline existed.
+    final v1 = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: (db, _) => db.execute('''
+          CREATE TABLE ${SqliteLocationStore.table} (
+            id TEXT PRIMARY KEY,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            accuracy REAL,
+            recorded_at INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            next_attempt_at INTEGER,
+            synced_at INTEGER
+          )
+        '''),
+      ),
+    );
+    await v1.insert(SqliteLocationStore.table, {
+      'id': 'old',
+      'latitude': 1.0,
+      'longitude': 2.0,
+      'recorded_at': 0,
+      'status': SyncStatus.pending.name,
+    });
+    await v1.close();
+
+    final upgraded = await SqliteLocationStore.open(
+      path: path,
+      factory: databaseFactoryFfi,
+    );
+    addTearDown(upgraded.close);
+    await upgraded.insert(
+      LocationRecord(
+        id: 'new',
+        latitude: 1,
+        longitude: 2,
+        recordedAt: DateTime.utc(2026, 1, 1),
+        recordedOffline: true,
+      ),
+    );
+
+    final rows = await upgraded.pendingBatch(limit: 10, now: now);
+    expect(
+      {for (final r in rows) r.id: r.recordedOffline},
+      {'old': false, 'new': true},
+    );
   });
 }

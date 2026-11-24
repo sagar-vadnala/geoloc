@@ -9,7 +9,9 @@ class SqliteLocationStore implements LocationStore {
   SqliteLocationStore(this._db);
 
   static const table = 'locations';
-  static const _dbVersion = 1;
+
+  /// 1: initial schema. 2: adds `recorded_offline`.
+  static const _dbVersion = 2;
 
   final Database _db;
   final _changes = StreamController<void>.broadcast();
@@ -34,6 +36,7 @@ class SqliteLocationStore implements LocationStore {
               longitude REAL NOT NULL,
               accuracy REAL,
               recorded_at INTEGER NOT NULL,
+              recorded_offline INTEGER NOT NULL DEFAULT 0,
               status TEXT NOT NULL,
               attempts INTEGER NOT NULL DEFAULT 0,
               last_error TEXT,
@@ -44,6 +47,15 @@ class SqliteLocationStore implements LocationStore {
           await db.execute(
             'CREATE INDEX idx_locations_status ON $table(status, recorded_at)',
           );
+        },
+        onUpgrade: (db, oldVersion, _) async {
+          if (oldVersion < 2) {
+            // Points saved before this column existed count as online.
+            await db.execute(
+              'ALTER TABLE $table ADD COLUMN '
+              'recorded_offline INTEGER NOT NULL DEFAULT 0',
+            );
+          }
         },
       ),
     );

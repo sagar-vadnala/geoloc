@@ -408,6 +408,10 @@ class _PointRow extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
+                if (record.recordedOffline) ...[
+                  const SizedBox(height: 6),
+                  _OfflineBadge(sent: record.status == SyncStatus.synced),
+                ],
               ],
             ),
           ),
@@ -417,6 +421,38 @@ class _PointRow extends StatelessWidget {
             style: text.bodySmall?.copyWith(fontFeatures: _tabular),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Marks a point saved while the phone had no network. Grey while it waits,
+/// green once the server has it.
+class _OfflineBadge extends StatelessWidget {
+  const _OfflineBadge({required this.sent});
+
+  final bool sent;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final status = StatusColors.of(context);
+    final color = sent ? status.synced : status.muted;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        child: Text(
+          sent ? 'Offline location sent' : 'Recorded offline',
+          style: text.labelSmall?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
   }
