@@ -78,32 +78,31 @@ class DioLocationApi implements LocationApi {
   }
 
   static ApiException _map(DioException e) {
-    switch (e.type) {
-      case DioExceptionType.badResponse:
-        final code = e.response?.statusCode ?? 0;
-        // 408/425/429 and 5xx are transient. 401/403 are config problems that
-        // can be fixed without losing data, so they are retried as well.
-        final retryable =
-            code >= 500 ||
-            code == 401 ||
-            code == 403 ||
-            code == 408 ||
-            code == 425 ||
-            code == 429;
-        return ApiException('Server responded $code', retryable: retryable);
-      case DioExceptionType.cancel:
-        return const ApiException('Request cancelled', retryable: true);
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-        return const ApiException('Request timed out', retryable: true);
-      case DioExceptionType.connectionError:
-      case DioExceptionType.badCertificate:
-      case DioExceptionType.unknown:
-        return ApiException(
-          e.message ?? 'Network unreachable',
-          retryable: true,
-        );
+    if (e.type == DioExceptionType.badResponse) {
+      final code = e.response?.statusCode ?? 0;
+      return ApiException(
+        'Server responded $code',
+        retryable: _isRetryableStatus(code),
+      );
     }
+
+    // Anything else is a transport problem, not a problem with the data, so
+    // the records stay pending. A default branch keeps this compiling when Dio
+    // adds new exception types (5.10 added transformTimeout).
+    final message = switch (e.type) {
+      DioExceptionType.connectionTimeout ||
+      DioExceptionType.sendTimeout ||
+      DioExceptionType.receiveTimeout ||
+      DioExceptionType.transformTimeout => 'Request timed out',
+      DioExceptionType.connectionError => 'Could not reach the server',
+      DioExceptionType.cancel => 'Request cancelled',
+      _ => e.message ?? 'Network error',
+    };
+    return ApiException(message, retryable: true);
   }
+
+  /// 5xx, 408, 425 and 429 are temporary. 401/403 mean the app is
+  /// misconfigured; retrying later is better than throwing the data away.
+  static bool _isRetryableStatus(int code) =>
+      code >= 500 || const {401, 403, 408, 425, 429}.contains(code);
 }
