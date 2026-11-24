@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geoloc/core/theme.dart';
 import 'package:geoloc/feature/home.dart';
 import 'package:geoloc/feature/location/data/sqlite_location_store.dart';
 import 'package:geoloc/feature/location/providers.dart';
@@ -23,7 +24,8 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Geoloc',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorScheme: .fromSeed(seedColor: Colors.deepPurple)),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
       home: const HomeScreen(),
     );
   }
