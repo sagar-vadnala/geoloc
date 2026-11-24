@@ -54,17 +54,13 @@ Duration exponentialBackoff(int attempts) {
 ///  * the server dedupes by id, so a retry after a lost response is harmless.
 class SyncService {
   SyncService({
-    required LocationStore store,
-    required LocationApi api,
-    required Future<bool> Function() isOnline,
+    required this._store,
+    required this._api,
+    required this._isOnline,
     DateTime Function()? now,
     this.batchSize = 50,
-    Backoff backoff = exponentialBackoff,
-  }) : _store = store,
-       _api = api,
-       _isOnline = isOnline,
-       _now = now ?? DateTime.now,
-       _backoff = backoff;
+    this._backoff = exponentialBackoff,
+  }) : _now = now ?? DateTime.now;
 
   final LocationStore _store;
   final LocationApi _api;

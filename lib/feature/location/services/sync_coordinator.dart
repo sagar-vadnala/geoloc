@@ -12,14 +12,12 @@ import 'sync_service.dart';
 ///  * and on a slow safety timer.
 class SyncCoordinator {
   SyncCoordinator({
-    required SyncService service,
-    required LocationStore store,
-    required ConnectivityService connectivity,
+    required this._service,
+    required this._store,
+    required this._connectivity,
     this.debounce = const Duration(seconds: 2),
     this.safetyInterval = const Duration(minutes: 1),
-  }) : _service = service,
-       _store = store,
-       _connectivity = connectivity;
+  });
 
   final SyncService _service;
   final LocationStore _store;
