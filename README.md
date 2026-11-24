@@ -112,10 +112,11 @@ SyncService -> Dio -> API -> SQLite (synced)`. The UI only reads SQLite
   the next try with exponential backoff (5s, 10s, 20s ... capped at 5 min).
   Records the server rejects as invalid (or a 4xx such as 400/422) become
   `failed`: they stay on the device, are shown in the UI and never block the
-  queue. **Retry failed records** puts them back to `pending`.
+  queue. **Retry N rejected** puts them back to `pending`.
 - **When sync runs** (`SyncCoordinator`): at start-up, when connectivity returns,
   2 s after new fixes are saved, when the earliest backoff expires, every
-  minute as a safety net, and on **Sync now**.
+  minute as a safety net, and on **Upload now**. While the phone has no
+  network it waits for connectivity to return instead of retrying on a timer.
 
 ### Location permission
 
@@ -158,6 +159,7 @@ cd server && npm test         # mock API
 
 | File | Covers |
 | --- | --- |
+| `sync_coordinator_test.dart` | retries a due record while online, does not poll while offline, syncs as soon as the network returns (fake timers) |
 | `sync_service_test.dart` | success, duplicates, failure + backoff + recovery, rejected records, non-retryable errors, partial acknowledgement, offline, overlapping calls, batching (mocked API, real in-memory SQLite) |
 | `sqlite_location_store_test.dart` | persistence, duplicate inserts, ordering, backoff filtering, change stream |
 | `location_api_test.dart` | request body, response parsing, which Dio errors and HTTP codes are retried |
