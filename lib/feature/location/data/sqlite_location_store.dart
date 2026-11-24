@@ -186,7 +186,7 @@ class SqliteLocationStore implements LocationStore {
   }
 
   @override
-  Stream<LocationSnapshot> watch({int recentLimit = 20}) async* {
+  Stream<LocationSnapshot> watch({int recentLimit = 20}) {
     Future<LocationSnapshot> load() async {
       final rows = await _db.query(
         table,
@@ -199,10 +199,19 @@ class SqliteLocationStore implements LocationStore {
       );
     }
 
-    yield await load();
-    // yield* (not `await for`) so cancelling the subscription also cancels
-    // the one on _changes; with `await for` cancel() never completed.
-    yield* _changes.stream.asyncMap((_) => load());
+    // One load for the initial snapshot, then one per change, in order.
+    // _changes is listened to *before* the first load so a change made while
+    // it runs is not missed, and cancelling the result cancels that listener.
+    StreamSubscription<void>? changes;
+    late final StreamController<void> triggers;
+    triggers = StreamController<void>(
+      onListen: () {
+        changes = _changes.stream.listen(triggers.add, onDone: triggers.close);
+        triggers.add(null);
+      },
+      onCancel: () => changes?.cancel(),
+    );
+    return triggers.stream.asyncMap((_) => load());
   }
 
   Future<void> close() async {
