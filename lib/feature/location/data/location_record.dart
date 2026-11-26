@@ -27,6 +27,7 @@ class LocationRecord {
     this.lastError,
     this.nextAttemptAt,
     this.syncedAt,
+    this.deliveryId,
   });
 
   /// Client-generated unique id. It is the idempotency key: the server uses it
@@ -47,6 +48,10 @@ class LocationRecord {
   final DateTime? nextAttemptAt;
   final DateTime? syncedAt;
 
+  /// Set when the point was recorded during a delivery, so the backend can
+  /// show the courier's progress for that order.
+  final String? deliveryId;
+
   /// Payload sent to the server. Local bookkeeping columns are not included.
   Map<String, dynamic> toApiJson() => {
     'id': id,
@@ -54,6 +59,7 @@ class LocationRecord {
     'longitude': longitude,
     'accuracy': accuracy,
     'recordedAt': recordedAt.toUtc().toIso8601String(),
+    if (deliveryId != null) 'deliveryId': deliveryId,
   };
 
   Map<String, Object?> toDb() => {
@@ -67,6 +73,7 @@ class LocationRecord {
     'last_error': lastError,
     'next_attempt_at': nextAttemptAt?.toUtc().millisecondsSinceEpoch,
     'synced_at': syncedAt?.toUtc().millisecondsSinceEpoch,
+    'delivery_id': deliveryId,
   };
 
   factory LocationRecord.fromDb(Map<String, Object?> row) {
@@ -84,6 +91,7 @@ class LocationRecord {
       lastError: row['last_error'] as String?,
       nextAttemptAt: ms(row['next_attempt_at']),
       syncedAt: ms(row['synced_at']),
+      deliveryId: row['delivery_id'] as String?,
     );
   }
 }

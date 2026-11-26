@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geoloc/feature/location/data/location_record.dart';
 import 'package:geoloc/feature/location/data/sqlite_location_store.dart';
@@ -114,5 +116,76 @@ void main() {
     expect(emissions.first.counts.total, 0);
     expect(emissions.last.counts.pending, 1);
     expect(emissions.last.recent.single.id, 'a');
+  });
+
+  test('delivery id round-trips and is sent to the API', () async {
+    final tagged = LocationRecord(
+      id: 'b',
+      latitude: 1,
+      longitude: 2,
+      recordedAt: DateTime.utc(2026, 1, 1, 10),
+      deliveryId: 'dlv_9',
+    );
+    await store.insert(tagged);
+    final row = (await store.pendingBatch(limit: 10, now: now)).single;
+    expect(row.deliveryId, 'dlv_9');
+    expect(row.toApiJson()['deliveryId'], 'dlv_9');
+    expect(record('c').toApiJson().containsKey('deliveryId'), isFalse);
+  });
+
+  test('a version 1 database is migrated without losing points', () async {
+    final dir = Directory.systemTemp.createTempSync('geoloc_migration');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/geoloc.db';
+
+    final v1 = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: (db, _) => db.execute('''
+          CREATE TABLE locations (
+            id TEXT PRIMARY KEY,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            accuracy REAL,
+            recorded_at INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            next_attempt_at INTEGER,
+            synced_at INTEGER
+          )
+        '''),
+      ),
+    );
+    await v1.insert('locations', {
+      'id': 'old',
+      'latitude': 1.0,
+      'longitude': 2.0,
+      'recorded_at': 0,
+      'status': 'pending',
+    });
+    await v1.close();
+
+    final migrated = await SqliteLocationStore.open(
+      path: path,
+      factory: databaseFactoryFfi,
+    );
+    addTearDown(migrated.close);
+    await migrated.insert(
+      LocationRecord(
+        id: 'new',
+        latitude: 3,
+        longitude: 4,
+        recordedAt: DateTime.utc(2026, 1, 1),
+        deliveryId: 'dlv_1',
+      ),
+    );
+
+    final rows = await migrated.pendingBatch(limit: 10, now: now);
+    expect(
+      {for (final r in rows) r.id: r.deliveryId},
+      {'old': null, 'new': 'dlv_1'},
+    );
   });
 }

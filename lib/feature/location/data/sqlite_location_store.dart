@@ -9,7 +9,7 @@ class SqliteLocationStore implements LocationStore {
   SqliteLocationStore(this._db);
 
   static const table = 'locations';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
 
   final Database _db;
   final _changes = StreamController<void>.broadcast();
@@ -38,12 +38,19 @@ class SqliteLocationStore implements LocationStore {
               attempts INTEGER NOT NULL DEFAULT 0,
               last_error TEXT,
               next_attempt_at INTEGER,
-              synced_at INTEGER
+              synced_at INTEGER,
+              delivery_id TEXT
             )
           ''');
           await db.execute(
             'CREATE INDEX idx_locations_status ON $table(status, recorded_at)',
           );
+        },
+        onUpgrade: (db, oldVersion, _) async {
+          // v2: points recorded during a delivery carry its id.
+          if (oldVersion < 2) {
+            await db.execute('ALTER TABLE $table ADD COLUMN delivery_id TEXT');
+          }
         },
       ),
     );
