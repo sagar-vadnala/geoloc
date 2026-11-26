@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geoloc/core/theme.dart';
+import 'package:geoloc/feature/delivery/delivery_bootstrap.dart';
+import 'package:geoloc/feature/delivery/delivery_config.dart';
 import 'package:geoloc/feature/home.dart';
 import 'package:geoloc/feature/location/data/sqlite_location_store.dart';
 import 'package:geoloc/feature/location/providers.dart';
@@ -10,7 +12,10 @@ Future<void> main() async {
   final store = await SqliteLocationStore.open();
   runApp(
     ProviderScope(
-      overrides: [locationStoreProvider.overrideWithValue(store)],
+      overrides: [
+        locationStoreProvider.overrideWithValue(store),
+        ...deliveryOverrides(DeliveryConfig.fromEnvironment()),
+      ],
       child: const MyApp(),
     ),
   );
