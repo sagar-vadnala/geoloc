@@ -3,53 +3,39 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
-/// A position reported by a [LocationSource].
-class LocationFix {
-  const LocationFix({
-    required this.latitude,
-    required this.longitude,
-    required this.timestamp,
-    this.accuracy,
-  });
+import '../domain/location_fix.dart';
 
-  final double latitude;
-  final double longitude;
-  final double? accuracy;
-  final DateTime timestamp;
-}
-
-/// Where fixes come from: the real GPS or a simulator.
-abstract class LocationSource {
-  /// Starts producing fixes. Cancelling the subscription stops tracking.
-  /// Errors (e.g. [LocationPermissionException]) are delivered on the stream.
-  Stream<LocationFix> positions();
-}
-
-class LocationPermissionException implements Exception {
-  const LocationPermissionException(
-    this.message, {
-    this.permanentlyDenied = false,
-    this.serviceDisabled = false,
-  });
-
-  final String message;
-  final bool permanentlyDenied;
-  final bool serviceDisabled;
-
-  @override
-  String toString() => message;
-}
+export '../domain/location_fix.dart';
 
 /// Real GPS through the geolocator plugin.
 ///
 /// Permission is requested up front by `LocationGate`. This only re-checks, so
 /// a permission revoked mid-session shows up as a readable error.
 class GeolocatorLocationSource implements LocationSource {
-  GeolocatorLocationSource({this.interval = const Duration(seconds: 10)});
+  GeolocatorLocationSource({
+    this.interval = const Duration(seconds: 10),
+    this.highAccuracy = true,
+    this.distanceFilterMeters = 0,
+    this.notificationTitle = 'Recording your location',
+    this.notificationText =
+        'Points are saved on this phone and uploaded when you are online.',
+  });
 
-  /// Roughly how often a point is recorded. Updates are time-based rather than
-  /// distance-based so a phone that isn't moving still records its position.
+  /// Roughly how often a point is recorded. With the default distance filter
+  /// of 0 updates are time-based, so a phone that isn't moving still records
+  /// its position.
   final Duration interval;
+
+  /// GPS-level accuracy. When false the OS may use Wi-Fi/cell positioning
+  /// (roughly 100 m), which uses noticeably less battery.
+  final bool highAccuracy;
+
+  /// Minimum movement in metres before the OS reports a new position.
+  final int distanceFilterMeters;
+
+  /// Text of the Android foreground-service notification shown while active.
+  final String notificationTitle;
+  final String notificationText;
 
   @override
   Stream<LocationFix> positions() async* {
@@ -101,16 +87,14 @@ class GeolocatorLocationSource implements LocationSource {
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return AndroidSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 0,
+          accuracy: _accuracy,
+          distanceFilter: distanceFilterMeters,
           intervalDuration: interval,
           // Runs updates in a foreground service so they keep coming while
           // the app is in the background. Android requires the notification.
-          foregroundNotificationConfig: const ForegroundNotificationConfig(
-            notificationTitle: 'Recording your location',
-            notificationText:
-                'Points are saved on this phone and uploaded when you are '
-                'online.',
+          foregroundNotificationConfig: ForegroundNotificationConfig(
+            notificationTitle: notificationTitle,
+            notificationText: notificationText,
             enableWakeLock: true,
             setOngoing: true,
           ),
@@ -118,17 +102,23 @@ class GeolocatorLocationSource implements LocationSource {
       case TargetPlatform.iOS:
       case TargetPlatform.macOS:
         return AppleSettings(
-          accuracy: LocationAccuracy.high,
+          accuracy: _accuracy,
           activityType: ActivityType.otherNavigation,
-          distanceFilter: 0,
+          distanceFilter: distanceFilterMeters,
           pauseLocationUpdatesAutomatically: false,
           showBackgroundLocationIndicator: true,
           allowBackgroundLocationUpdates: true,
         );
       default:
-        return const LocationSettings(accuracy: LocationAccuracy.high);
+        return LocationSettings(
+          accuracy: _accuracy,
+          distanceFilter: distanceFilterMeters,
+        );
     }
   }
+
+  LocationAccuracy get _accuracy =>
+      highAccuracy ? LocationAccuracy.high : LocationAccuracy.medium;
 }
 
 /// Emits a random walk, so the whole pipeline can be demoed on an emulator or
